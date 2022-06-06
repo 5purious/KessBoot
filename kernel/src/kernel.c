@@ -1,3 +1,3 @@
-int main(void) {
-    return 0xBADBABE;
+void main(void) {
+    __asm__ __volatile__("cli; hlt");
 }

@@ -28,6 +28,12 @@
 #include <elf.h>
 #include <stddef.h>
 
+// KessServices
+
+struct KessServices {
+} services;
+
+
 void Panic(CHAR16* Msg, EFI_SYSTEM_TABLE* SystemTable) {
     Print(L"** PANIC **\n");
     Print(Msg);
@@ -83,7 +89,6 @@ int MemCMP(const void* APtr, const void* BPtr, size_t n) {
 
     return 0;
 }
-
 
 
 // Boots up the system.
@@ -148,15 +153,39 @@ void Boot(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE* SystemTable) {
         }
     }
 
-    Print(L"AHHHH!\n");
-    int(*KernelEntry)(void) = ((__attribute__((sysv_abi)) int(*)())Header.e_entry);
-    Print(L"Kernel Ret => 0x%X\n", KernelEntry());
+    // MEMORY MAP TIME!!!
+    EFI_MEMORY_DESCRIPTOR* Map = NULL;
+    UINTN MapSize, MapKey;
+    UINTN DescriptorSize;
+    UINT32 DescriptorVersion;
+
+    SystemTable->BootServices->GetMemoryMap(&MapSize, Map, &MapKey, &DescriptorSize, &DescriptorVersion);
+
+    // Allocate memory for mmap.
+    SystemTable->BootServices->AllocatePool(EfiLoaderData, MapSize, (void**)&Map);
+    
+    // Fetch map.
+    SystemTable->BootServices->GetMemoryMap(&MapSize, Map, &MapKey, &DescriptorSize, &DescriptorVersion);
+    SystemTable->BootServices->GetMemoryMap(&MapSize, Map, &MapKey, &DescriptorSize, &DescriptorVersion);
+
+    // Reset ConOut (clears screen).
+    SystemTable->ConOut->Reset(SystemTable->ConOut, 1);
+
+    // ExitBootServices.
+    SystemTable->BootServices->ExitBootServices(ImageHandle, MapKey);
+    SystemTable->BootServices->ExitBootServices(ImageHandle, MapKey);
+
+    void(*KernelEntry)(void) = ((__attribute__((sysv_abi)) void(*)())Header.e_entry);
+    KernelEntry();
 
 }
 
 
 EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE* SystemTable) {
     InitializeLib(ImageHandle, SystemTable); 
+
+    // Disable watchdog timer.
+    SystemTable->BootServices->SetWatchdogTimer(0, 0xFFFFFFFF, 0, NULL);
 
     Boot(ImageHandle, SystemTable);
 
