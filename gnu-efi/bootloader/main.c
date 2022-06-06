@@ -30,7 +30,20 @@
 
 // KessServices
 
-struct KessServices {
+struct MemoryDescriptor {
+    uint32_t type;
+    void* physAddr;
+    void* virtAddr;
+    uint64_t nPages;
+    uint64_t attr;
+};
+
+struct KessServices { 
+    struct Meminfo {
+        struct MemoryDescriptor* mMap;
+        uint64_t mSize;
+        uint64_t mDescriptorSize;
+    } meminfo;
 } services;
 
 
@@ -165,7 +178,11 @@ void Boot(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE* SystemTable) {
     if (Status != EFI_SUCCESS) {
         Print(L"[!] Status: %d\n", Status);
         Panic(L"GetMemoryMap() returned a non-zero value.", SystemTable);
-    } 
+    }
+
+    services.meminfo.mMap = (struct MemoryDescriptor*)Map;
+    services.meminfo.mSize = MapSize;
+    services.meminfo.mDescriptorSize = DescriptorSize;
 
     // Reset ConOut (clears screen).
     SystemTable->ConOut->Reset(SystemTable->ConOut, 1);
