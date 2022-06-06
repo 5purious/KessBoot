@@ -41,13 +41,8 @@ void Panic(CHAR16* Msg, EFI_SYSTEM_TABLE* SystemTable) {
 
     EFI_INPUT_KEY Key;
 
-    while (1) {
-        SystemTable->ConIn->ReadKeyStroke(SystemTable->ConIn, &Key);
-
-        if (Key.ScanCode != 0) {
-            SystemTable->RuntimeServices->ResetSystem(EfiResetShutdown, 0, 0, NULL);
-        }
-    }
+    while (SystemTable->ConIn->ReadKeyStroke(SystemTable->ConIn, &Key) == EFI_NOT_READY);
+    SystemTable->RuntimeServices->ResetSystem(EfiResetShutdown, 0, 0, NULL);
 }
 
 
@@ -165,8 +160,12 @@ void Boot(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE* SystemTable) {
     SystemTable->BootServices->AllocatePool(EfiLoaderData, MapSize, (void**)&Map);
     
     // Fetch map.
-    SystemTable->BootServices->GetMemoryMap(&MapSize, Map, &MapKey, &DescriptorSize, &DescriptorVersion);
-    SystemTable->BootServices->GetMemoryMap(&MapSize, Map, &MapKey, &DescriptorSize, &DescriptorVersion);
+    EFI_STATUS Status = SystemTable->BootServices->GetMemoryMap(&MapSize, Map, &MapKey, &DescriptorSize, &DescriptorVersion);
+
+    if (Status != EFI_SUCCESS) {
+        Print(L"[!] Status: %d\n", Status);
+        Panic(L"GetMemoryMap() returned a non-zero value.", SystemTable);
+    } 
 
     // Reset ConOut (clears screen).
     SystemTable->ConOut->Reset(SystemTable->ConOut, 1);
