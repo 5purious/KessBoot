@@ -28,7 +28,24 @@
 #include <elf.h>
 #include <stddef.h>
 
+#define PSF1_MAGIC_LOW 0x36
+#define PSF1_MAGIC_HIGH 0x04
+
+
 // KessServices
+
+struct PSF1Header {
+    unsigned char magic[2];
+    unsigned char mode;
+    unsigned char chrsize;
+};
+
+
+struct PSF1Font {
+    struct PSF1Header* header;
+    void* glyph_buffer;
+};
+
 
 struct MemoryDescriptor {
     uint32_t type;
@@ -44,6 +61,16 @@ struct KessServices {
         uint64_t mSize;
         uint64_t mDescriptorSize;
     } meminfo;
+
+    struct Framebuffer {
+        void* base_addr;
+        size_t buffer_size;
+        unsigned int width;
+        unsigned int height;
+        unsigned int ppsl;
+    } framebuffer;
+
+    struct PSF1Font font;
 } services;
 
 
@@ -81,6 +108,52 @@ EFI_FILE* LoadFile(EFI_FILE* Directory, CHAR16* Path, EFI_HANDLE ImageHandle, EF
         return NULL;
 
     return FileRes;
+}
+
+
+void load_font(EFI_FILE* Directory, CHAR16* Path, EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE* SystemTable) {
+    EFI_FILE* Font = LoadFile(Directory, Path, ImageHandle, SystemTable);
+    if (Font == NULL)
+        Panic(L"Could not load Built-In font!\n", SystemTable);
+
+    struct PSF1Header* FontHeader;
+    SystemTable->BootServices->AllocatePool(EfiLoaderData, sizeof(struct PSF1Header), (void**)&FontHeader);
+    UINTN ReadSize = sizeof(struct PSF1Header);
+    Font->Read(Font, &ReadSize, FontHeader);
+
+    if (FontHeader->magic[0] != PSF1_MAGIC_LOW || FontHeader->magic[1] != PSF1_MAGIC_HIGH)
+        Panic(L"Built-In font header is bad!\n", SystemTable);
+
+    UINTN GlyphBufferSize = FontHeader->chrsize * 256;
+
+    if (FontHeader->mode == 1)
+        GlyphBufferSize = FontHeader->chrsize * 512;
+
+    void* GlyphBuffer = NULL;
+
+    Font->SetPosition(Font, sizeof(struct PSF1Header));
+    SystemTable->BootServices->AllocatePool(EfiLoaderData, GlyphBufferSize, (void**)GlyphBuffer);
+    Font->Read(Font, &GlyphBufferSize, GlyphBuffer);
+
+    services.font.header = FontHeader;
+    services.font.glyph_buffer = GlyphBuffer;
+}
+
+
+void InitGop(void) {
+    EFI_GUID GopGUID = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
+    EFI_GRAPHICS_OUTPUT_PROTOCOL* Gop;
+    EFI_STATUS Status = uefi_call_wrapper(BS->LocateProtocol, 3, &GopGUID, NULL, (void**)&Gop);
+
+    if (EFI_ERROR(Status))
+        Panic(L"Failed to locate GOP protocol.", ST);
+
+    services.framebuffer.base_addr = (void*)Gop->Mode->FrameBufferBase;
+    services.framebuffer.buffer_size = Gop->Mode->FrameBufferSize;
+    services.framebuffer.width = Gop->Mode->Info->HorizontalResolution;
+    services.framebuffer.height = Gop->Mode->Info->VerticalResolution;
+    services.framebuffer.ppsl = Gop->Mode->Info->PixelsPerScanLine;
+
 }
 
 
@@ -203,6 +276,8 @@ EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE* SystemTable) {
     // Disable watchdog timer.
     SystemTable->BootServices->SetWatchdogTimer(0, 0xFFFFFFFF, 0, NULL);
 
+    load_font(NULL, L"zap-light16.psf", ImageHandle, SystemTable);
+    InitGop();
     Boot(ImageHandle, SystemTable);
 
     return EFI_SUCCESS;
